@@ -47,16 +47,22 @@ def on_new_sample(sink, appsrc, overlay, screen_size, appsink_size,
     buf = sample.get_buffer()
     result, mapinfo = buf.map(Gst.MapFlags.READ)
     if result:
+
         img = np.frombuffer(mapinfo.data, np.uint8)
+
+        # gstreamer can give us ragged image, unpad for np reshape here
+        img = img[:appsink_size[0]*appsink_size[1]*3]
         img = np.reshape(img, [appsink_size[1], appsink_size[0], -1])
+
         svg_canvas = svgwrite.Drawing('', size=(screen_size[0], screen_size[1]))
         appsrc_image = user_function(img, svg_canvas)
 
         if appsrc:
             data = appsrc_image.tobytes()
-            appsrc_buffer = Gst.Buffer.new_allocate(None, len(data), None)
+            appsrc_buffer = Gst.Buffer.new_allocate(None, len(mapinfo.data), None) #must be orig len (not unpadded)
             appsrc_buffer.fill(0, data)
             appsrc.emit('push-buffer', appsrc_buffer)
+            #appsrc.emit('push-buffer', buf) #for testing
 
         if overlay:
           overlay.set_property('data', svg_canvas.tostring())
@@ -111,6 +117,9 @@ def run_pipeline(user_function,
          ! {sink_caps}  ! {leaky_q} ! {sink_element} """
       APPSRC_PIPELINE += """ ! {leaky_q} ! videoconvert
          ! rsvgoverlay name=overlay ! videoconvert ! autovideosink"""
+      #APPSRC_PIPELINE += """ ! {leaky_q} ! videoconvert !
+      #    video/x-raw,format=RGB,width={width},height={height} !
+      #    v4l2sink device=/dev/video11"""
 
     SINK_ELEMENT = 'appsink name=appsink sync=false emit-signals=true max-buffers=1 drop=true'
     DL_CAPS = 'video/x-raw,format=BGRA,width={width},height={height}'
@@ -131,6 +140,7 @@ def run_pipeline(user_function,
 
     appsrc_caps = APPSRC_CAPS.format(width=appsink_size[0], height=appsink_size[1])
     appsrc_pipeline = APPSRC_PIPELINE.format(leaky_q=LEAKY_Q,
+                                             width=appsink_size[0], height=appsink_size[1],
                                              appsrc_caps=appsrc_caps,
                                              src_caps=src_caps)
     print('Gstreamer appsrc pipeline: ', appsrc_pipeline)

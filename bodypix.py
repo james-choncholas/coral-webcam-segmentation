@@ -26,109 +26,149 @@ import scipy.misc
 from PIL import Image
 
 import gstreamer
-from pose_engine import PoseEngine, EDGES, BODYPIX_PARTS
+#from pose_engine import PoseEngine, EDGES, BODYPIX_PARTS
+
+from pycoral.adapters import common
+from pycoral.adapters import segment
+from pycoral.utils.edgetpu import make_interpreter
 
 # Color mapping for bodyparts
-RED_BODYPARTS = [k for k,v in BODYPIX_PARTS.items() if "right" in v]
-GREEN_BODYPARTS = [k for k,v in BODYPIX_PARTS.items() if "hand" in v or "torso" in v]
-BLUE_BODYPARTS = [k for k,v in BODYPIX_PARTS.items() if "leg" in v or "arm" in v or "face" in v or "hand" in v]
+#RED_BODYPARTS = [k for k,v in BODYPIX_PARTS.items() if "right" in v]
+#GREEN_BODYPARTS = [k for k,v in BODYPIX_PARTS.items() if "hand" in v or "torso" in v]
+#BLUE_BODYPARTS = [k for k,v in BODYPIX_PARTS.items() if "leg" in v or "arm" in v or "face" in v or "hand" in v]
 
-def shadow_text(dwg, x, y, text, font_size=16):
-    dwg.add(dwg.text(text, insert=(x + 1, y + 1), fill='black',
-                     font_size=font_size, style='font-family:sans-serif'))
-    dwg.add(dwg.text(text, insert=(x, y), fill='white',
-                     font_size=font_size, style='font-family:sans-serif'))
+#def shadow_text(dwg, x, y, text, font_size=16):
+#    dwg.add(dwg.text(text, insert=(x + 1, y + 1), fill='black',
+#                     font_size=font_size, style='font-family:sans-serif'))
+#    dwg.add(dwg.text(text, insert=(x, y), fill='white',
+#                     font_size=font_size, style='font-family:sans-serif'))
+#
+#def draw_pose(dwg, pose, color='blue', threshold=0.2):
+#    xys = {}
+#    for label, keypoint in pose.keypoints.items():
+#        if keypoint.score < threshold: continue
+#        xys[label] = (int(keypoint.yx[1]), int(keypoint.yx[0]))
+#        dwg.add(dwg.circle(center=(int(keypoint.yx[1]), int(keypoint.yx[0])), r=5,
+#                           fill='cyan', stroke=color))
+#    for a, b in EDGES:
+#        if a not in xys or b not in xys: continue
+#        ax, ay = xys[a]
+#        bx, by = xys[b]
+#        dwg.add(dwg.line(start=(ax, ay), end=(bx, by), stroke=color, stroke_width=2))
 
-def draw_pose(dwg, pose, color='blue', threshold=0.2):
-    xys = {}
-    for label, keypoint in pose.keypoints.items():
-        if keypoint.score < threshold: continue
-        xys[label] = (int(keypoint.yx[1]), int(keypoint.yx[0]))
-        dwg.add(dwg.circle(center=(int(keypoint.yx[1]), int(keypoint.yx[0])), r=5,
-                           fill='cyan', stroke=color))
-    for a, b in EDGES:
-        if a not in xys or b not in xys: continue
-        ax, ay = xys[a]
-        bx, by = xys[b]
-        dwg.add(dwg.line(start=(ax, ay), end=(bx, by), stroke=color, stroke_width=2))
+
+def create_pascal_label_colormap():
+  """Creates a label colormap used in PASCAL VOC segmentation benchmark.
+  Returns:
+    A Colormap for visualizing segmentation results.
+  """
+  #colormap = np.zeros((256, 3), dtype=int)
+  #indices = np.arange(256, dtype=int)
+
+  #for shift in reversed(range(8)):
+  #  for channel in range(3):
+  #    colormap[:, channel] |= ((indices >> channel) & 1) << shift
+  #  indices >>= 3
+
+
+
+  #15 is person, 20 is wall?
+  colormap = np.zeros((256, 3), dtype=np.uint8)
+  colormap[15] = (255,255,255)
+  return colormap
+
+
+def label_to_color_image(label):
+  """Adds color defined by the dataset colormap to the label.
+  Args:
+    label: A 2D array with integer type, storing the segmentation label.
+  Returns:
+    result: A 2D array with floating type. The element of the array
+      is the color indexed by the corresponding element in the input label
+      to the PASCAL color map.
+  Raises:
+    ValueError: If label is not of rank 2 or its value is larger than color
+      map maximum entry.
+  """
+  if label.ndim != 2:
+    raise ValueError('Expect 2-D input label')
+
+  colormap = create_pascal_label_colormap()
+
+  if np.max(label) >= len(colormap):
+    raise ValueError('label value too large.')
+
+  return colormap[label]
 
 class Callback:
-  def __init__(self, engine, anonymize=True, bodyparts=True):
-    self.engine = engine
-    self.anonymize = anonymize
-    self.bodyparts = bodyparts
+  ##def __init__(self, engine, anonymize=True, bodyparts=True):
+  def __init__(self, interpreter):
+    ##self.engine = engine
+    self.interpreter = interpreter
+    ##self.anonymize = anonymize
+    ##self.bodyparts = bodyparts
     self.background_image = None
     self.last_time = time.monotonic()
     self.frames = 0
     self.sum_fps = 0
     self.sum_process_time = 0
-    self.sum_inference_time = 0
+    #self.sum_inference_time = 0
 
   def __call__(self, image, svg_canvas):
-    start_time = time.monotonic()
-    inference_time, poses, heatmap, bodyparts = self.engine.DetectPosesInImage(image)
+    common.set_input(self.interpreter, image)
+    self.interpreter.invoke()
+    result = segment.get_output(self.interpreter)
+    if len(result.shape) == 3:
+      result = np.argmax(result, axis=-1)
 
-    def clip_heatmap(heatmap, v0, v1):
-      a = v0 / (v0 - v1);
-      b = 1.0 / (v1 - v0);
-      return np.clip(a + b * heatmap, 0.0, 1.0);
+    ##mask = Image.fromarray(label_to_color_image(result).astype(np.uint8))
+    mask = label_to_color_image(result)#.astype(np.uint8)
+    output_image = mask
+    output_image[20:40,20:40] = [0,255,0] # WHYYYYY
 
-    # clip heatmap to create a mask
-    heatmap = clip_heatmap(heatmap,  -1.0,  1.0)
+    #bg = np.zeros((513,513,3), dtype=np.uint8)
+    #bg[:,:,1] = 240
+    #bg[:,:,2] = 255
+    #bg[:,:] = [0,255,0]
+    #bg[:,:] = np.array([0,255,0], dtype=np.uint8)
+    #bg[:,:] = [0,255,0]
+    #bg[20:40,20:40] = [0,255,0]
+    #bg = np.full(image.shape, 200, dtype=np.uint8)
+    #bg = np.full(image.shape, [200, 200, 200], dtype=np.uint8)
+    #bg = np.full((image.shape[0], image.shape[1],3), (0, 255, 0), dtype=np.uint8)
+    #bg = Image.new("RGB", (image.shape[0], image.shape[1]), (0, 255, 0))
+    #bg = np.full(image.size, 200, dtype=np.uint8)
+    #bg = np.full(image.shape, [0, 255, 0], dtype=np.uint8)
+    #bg = np.full(image.size, 255, dtype=np.uint8)
+    #output_image = bg
 
-    if self.bodyparts:
-      rgb_heatmap = np.dstack([
-            heatmap*(np.sum(bodyparts[:,:,RED_BODYPARTS], axis=2)-0.5)*100,
-            heatmap*(np.sum(bodyparts[:,:,GREEN_BODYPARTS], axis=2)-0.5)*100,
-            heatmap*(np.sum(bodyparts[:,:,BLUE_BODYPARTS], axis=2)-0.5)*100,
-          ])
-    else:
-      rgb_heatmap = np.dstack([heatmap[:,:]*100]*3)
-      rgb_heatmap[:,:,1:] = 0 # make it red
-
-    rgb_heatmap= 155*np.clip(rgb_heatmap, 0, 1)
-    rescale_factor = [
-      image.shape[0]/heatmap.shape[0],
-      image.shape[1]/heatmap.shape[1],
-      1]
-
-    rgb_heatmap = scipy.ndimage.zoom(rgb_heatmap, rescale_factor, order=0)
-
-    if self.anonymize:
-      if self.background_image is None:
-        self.background_image = np.float32(np.zeros_like(image))
-      # Estimate instantaneous background
-      mask = np.clip(np.sum(rgb_heatmap, axis=2), 0, 1)[:,:,np.newaxis]
-      background_estimate = (self.background_image*mask+ image*(1.0-mask))
-
-      # Mix into continuous estimate with decay
-      ratio = 1/max(1,self.frames/2.0)
-      self.background_image = self.background_image*(1.0-ratio) + ratio*background_estimate
-    else:
-      self.background_image = image
-
-    output_image = self.background_image + rgb_heatmap
-    int_img = np.uint8(np.clip(output_image,0,255))
+    # use mask to combine with background
+    #tmp1 = cv2.bitwise_and(image, image, mask=mask)
+    #tmp2 = cv2.bitwise_and(bg, bg, mask=~mask)
+    #output_image = cv2.add(tmp1,tmp2)
 
     end_time = time.monotonic()
 
     self.frames += 1
     self.sum_fps += 1.0 / (end_time - self.last_time)
-    self.sum_process_time += 1000 * (end_time - start_time) - inference_time
-    self.sum_inference_time += inference_time
+    ##self.sum_process_time += 1000 * (end_time - start_time) - inference_time
+    ##self.sum_inference_time += inference_time
     self.last_time = end_time
     text_line = 'PoseNet: %.1fms Frame IO: %.2fms TrueFPS: %.2f Nposes %d' % (
-        self.sum_inference_time / self.frames,
-        self.sum_process_time / self.frames,
+        ##self.sum_inference_time / self.frames,
+        0,
+        ##self.sum_process_time / self.frames,
+        0,
         self.sum_fps / self.frames,
-        len(poses)
+        #len(poses)
+        0
     )
 
-    shadow_text(svg_canvas, 10, 20, text_line)
-    for pose in poses:
-        draw_pose(svg_canvas, pose)
+    #shadow_text(svg_canvas, 10, 20, text_line)
+    #for pose in poses:
+    #    draw_pose(svg_canvas, pose)
     print(text_line)
-    return int_img
+    return output_image
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -154,21 +194,28 @@ def main():
         print('Error: both mutually exclusive options h264 and jpeg set')
         sys.exit(1)
 
-    default_model = 'models/bodypix_mobilenet_v1_075_640_480_16_quant_edgetpu_decoder.tflite'
+    #default_model = 'models/bodypix_mobilenet_v1_075_640_480_16_quant_edgetpu_decoder.tflite'
+    #default_model = 'models/deeplabv3_mnv2_dm05_pascal_quant_edgetpu.tflite'
+    default_model = 'models/deeplabv3_mnv2_pascal_quant_edgetpu.tflite'
     model = args.model if args.model else default_model
     print('Model: {}'.format(model))
 
-    engine = PoseEngine(model)
-    inference_size = (engine.image_width, engine.image_height)
+
+    ##engine = PoseEngine(model)
+    ##inference_size = (engine.image_width, engine.image_height)
+    interpreter = make_interpreter(model, device=':0')
+    interpreter.allocate_tensors()
+    inference_size = common.input_size(interpreter)
     print('Inference size: {}'.format(inference_size))
 
     src_size = (int(args.width), int(args.height))
     if args.videosrc.startswith('/dev/video'):
         print('Source size: {}'.format(src_size))
 
-    gstreamer.run_pipeline(Callback(engine,
-                                    anonymize=args.anonymize,
-                                    bodyparts=args.bodyparts),
+    gstreamer.run_pipeline(##Callback(engine,
+                           ##         anonymize=args.anonymize,
+                           ##         bodyparts=args.bodyparts),
+                           Callback(interpreter),
                            src_size, inference_size,
                            mirror=args.mirror,
                            videosrc=args.videosrc,
