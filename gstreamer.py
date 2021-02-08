@@ -45,27 +45,37 @@ def on_new_sample(sink, appsrc, overlay, screen_size, appsink_size,
                   user_function):
     sample = sink.emit('pull-sample')
     buf = sample.get_buffer()
+    #print(buf.get_sizes())
+    #print(buf.get_meta())
     result, mapinfo = buf.map(Gst.MapFlags.READ)
+    #print(mapinfo.size)
     if result:
 
         img = np.frombuffer(mapinfo.data, np.uint8)
 
-        # gstreamer can give us ragged image, unpad for np reshape here
-        img = img[:appsink_size[0]*appsink_size[1]*3]
-        img = np.reshape(img, [appsink_size[1], appsink_size[0], -1])
+        # gstreamer video buffers have a stride rounded up to nearest multiple of 4 >:(
+        stride = 4-appsink_size[1]*3%4
+        img = np.reshape(img, [appsink_size[0], appsink_size[1]*3+stride, 1]) # extra junk at end of row
+        #print(img.shape)
+        #print(img.strides)
+        img = img[:,:-stride] # throw away last column
+        img = np.reshape(img, [appsink_size[0], appsink_size[1], 3]) # cant work out last pixel stride
 
-        svg_canvas = svgwrite.Drawing('', size=(screen_size[0], screen_size[1]))
-        appsrc_image = user_function(img, svg_canvas)
+        appsrc_image = user_function(img)
+        appsrc_image = np.reshape(appsrc_image, (appsink_size[0], appsink_size[1]*3,1))
 
         if appsrc:
-            data = appsrc_image.tobytes()
+            outi = np.zeros((appsink_size[0], appsink_size[1]*3+stride,1), dtype=np.uint8)
+            #print(outi.shape)
+            #print(outi.strides)
+            outi[:,:-1,:] = appsrc_image
+            data = outi.tobytes()
+
             appsrc_buffer = Gst.Buffer.new_allocate(None, len(mapinfo.data), None) #must be orig len (not unpadded)
             appsrc_buffer.fill(0, data)
             appsrc.emit('push-buffer', appsrc_buffer)
             #appsrc.emit('push-buffer', buf) #for testing
 
-        if overlay:
-          overlay.set_property('data', svg_canvas.tostring())
     buf.unmap(mapinfo)
     return Gst.FlowReturn.OK
 
@@ -88,6 +98,7 @@ def run_pipeline(user_function,
                  jpeg=False,
                  videosrc='/dev/video0'):
     PIPELINE = 'v4l2src device=%s ! {src_caps} ! {leaky_q} '%videosrc
+    #PIPELINE = 'videotestsrc ! {src_caps} ! {leaky_q} '
     if h264:
         SRC_CAPS = 'video/x-h264,width={width},height={height},framerate=30/1'
     elif jpeg:

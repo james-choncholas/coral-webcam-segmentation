@@ -114,38 +114,27 @@ class Callback:
     self.sum_process_time = 0
     #self.sum_inference_time = 0
 
-  def __call__(self, image, svg_canvas):
-    common.set_input(self.interpreter, image)
+  def __call__(self, image):
+    #i = Image.frombytes('RGB', (image.shape[1], image.shape[0]), image.copy())#, "raw", 'RGB', stride) # this works
+    #i.save("/tmp/wtf.jpg")
+
+    common.set_input(self.interpreter, np.ascontiguousarray(image))
     self.interpreter.invoke()
     result = segment.get_output(self.interpreter)
     if len(result.shape) == 3:
       result = np.argmax(result, axis=-1)
 
     ##mask = Image.fromarray(label_to_color_image(result).astype(np.uint8))
-    mask = label_to_color_image(result)#.astype(np.uint8)
-    output_image = mask
-    output_image[20:40,20:40] = [0,255,0] # WHYYYYY
+    mask = label_to_color_image(result)
+    #output_image = mask
 
-    #bg = np.zeros((513,513,3), dtype=np.uint8)
-    #bg[:,:,1] = 240
-    #bg[:,:,2] = 255
-    #bg[:,:] = [0,255,0]
-    #bg[:,:] = np.array([0,255,0], dtype=np.uint8)
-    #bg[:,:] = [0,255,0]
-    #bg[20:40,20:40] = [0,255,0]
-    #bg = np.full(image.shape, 200, dtype=np.uint8)
-    #bg = np.full(image.shape, [200, 200, 200], dtype=np.uint8)
-    #bg = np.full((image.shape[0], image.shape[1],3), (0, 255, 0), dtype=np.uint8)
-    #bg = Image.new("RGB", (image.shape[0], image.shape[1]), (0, 255, 0))
-    #bg = np.full(image.size, 200, dtype=np.uint8)
-    #bg = np.full(image.shape, [0, 255, 0], dtype=np.uint8)
-    #bg = np.full(image.size, 255, dtype=np.uint8)
+    bg = np.full(image.shape, [0, 255, 0], dtype=np.uint8)
     #output_image = bg
 
     # use mask to combine with background
-    #tmp1 = cv2.bitwise_and(image, image, mask=mask)
-    #tmp2 = cv2.bitwise_and(bg, bg, mask=~mask)
-    #output_image = cv2.add(tmp1,tmp2)
+    tmp1 = np.bitwise_and(image, mask)
+    tmp2 = np.bitwise_and(bg, ~mask)
+    output_image = tmp1+tmp2
 
     end_time = time.monotonic()
 
@@ -164,9 +153,6 @@ class Callback:
         0
     )
 
-    #shadow_text(svg_canvas, 10, 20, text_line)
-    #for pose in poses:
-    #    draw_pose(svg_canvas, pose)
     print(text_line)
     return output_image
 
@@ -206,6 +192,7 @@ def main():
     interpreter = make_interpreter(model, device=':0')
     interpreter.allocate_tensors()
     inference_size = common.input_size(interpreter)
+    #inference_size = [512,512]
     print('Inference size: {}'.format(inference_size))
 
     src_size = (int(args.width), int(args.height))
