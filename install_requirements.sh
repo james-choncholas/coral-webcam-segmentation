@@ -22,6 +22,17 @@ else
   # Install gstreamer 
   sudo apt-get install -y gstreamer1.0-plugins-bad gstreamer1.0-plugins-good python3-gst-1.0 python3-gi
   pip3 install svgwrite
+  sudo pip3 install numpy
+  sudo pip3 install scipy
+
+  # Edge TPU runtime
+  echo "deb https://packages.cloud.google.com/apt coral-edgetpu-stable main" | sudo tee /etc/apt/sources.list.d/coral-edgetpu.list
+  curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+  sudo apt-get update
+  sudo apt-get install libedgetpu1-std
+  sudo apt-get install python3-pycoral
+
+  echo "NEED TO UNPLUG CORAL USB"
 
   if grep -s -q "Raspberry Pi" /sys/firmware/devicetree/base/model; then
     echo "Installing Raspberry Pi specific dependencies"
