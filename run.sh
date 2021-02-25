@@ -12,5 +12,10 @@
 #    --anonymize --nobodyparts \
 #    --model models/$mymodel
 
+
+#https://gstreamer.freedesktop.org/documentation/tutorials/basic/debugging-tools.html?gi-language=c
+#export GST_DEBUG=4
+export GST_DEBUG=2
+
 #sudo modprobe v4l2loopback devices=1 video_nr=11 card_label="test" exclusive_caps=1 &
 python3 bodypix.py

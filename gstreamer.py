@@ -128,14 +128,23 @@ def run_pipeline(user_function,
          ! {sink_caps}  ! {leaky_q} ! {sink_element} """
       APPSRC_PIPELINE += """ ! {leaky_q} ! videoconvert
          ! rsvgoverlay name=overlay ! videoconvert ! autovideosink"""
+      #APPSRC_PIPELINE += """ ! {leaky_q} ! videobox name=box autocrop=true !
+      #    video/x-raw,format=RGB,width=640,height=480 !
+      #    videoconvert ! autovideosink"""
+
       #APPSRC_PIPELINE += """ ! {leaky_q} ! videoconvert !
       #    video/x-raw,format=RGB,width={width},height={height} !
       #    v4l2sink device=/dev/video11"""
+      #APPSRC_PIPELINE += """ ! {leaky_q} ! videobox name=box autocrop=true !
+      #    video/x-raw,format=RGB,width=640,height=480 !
+      #    videoconvert ! autovideosink"""
+      #    #v4l2sink device=/dev/video11 sync=false"""
+      #    #interleaved,progressive
 
     SINK_ELEMENT = 'appsink name=appsink sync=false emit-signals=true max-buffers=1 drop=true'
     DL_CAPS = 'video/x-raw,format=BGRA,width={width},height={height}'
     SINK_CAPS = 'video/x-raw,format=RGB,width={width},height={height}'
-    APPSRC_CAPS = 'video/x-raw,format=RGB,width={width},height={height},framerate=30/1'
+    APPSRC_CAPS = 'video/x-raw,format=RGB,width={width},height={height},framerate=30/1'#,is-live=true,do-timestamp=true'
     LEAKY_Q = 'queue max-size-buffers=1 leaky=downstream'
     direction = 'horiz' if mirror else 'identity'
 
